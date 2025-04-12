@@ -30,7 +30,7 @@ class MCPServer:
 
         # Initialize standard tools
         self.tools["bash"] = Bash()
-        self.tools["browser"] = BrowserUseTool()
+        #self.tools["browser"] = BrowserUseTool()
         self.tools["editor"] = StrReplaceEditor()
         self.tools["terminate"] = Terminate()
 

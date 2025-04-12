@@ -1,5 +1,6 @@
 import math
 from typing import Dict, List, Optional, Union
+import requests
 
 import tiktoken
 from openai import (
@@ -39,6 +40,8 @@ MULTIMODAL_MODELS = [
     "claude-3-opus-20240229",
     "claude-3-sonnet-20240229",
     "claude-3-haiku-20240307",
+    "Qwen2.5-14B-Instruct-1M",
+    "QWen2_5_32b_16k",
 ]
 
 
@@ -215,10 +218,49 @@ class LLM:
 
             # Initialize tokenizer
             try:
-                self.tokenizer = tiktoken.encoding_for_model(self.model)
-            except KeyError:
-                # If the model is not in tiktoken's presets, use cl100k_base as default
+                logger.warning(f"Using offline tokenizer for {self.model}")
+
+                # 直接使用本地文件，完全避免网络请求
+                import os
+
+                # 修改tiktoken的源码，禁止网络请求
+                from tiktoken.load import read_file, read_file_cached
+
+                # 替换read_file函数，避免网络请求
+                def offline_read_file(blobpath):
+                    if "cl100k_base.tiktoken" in blobpath:
+                        local_path = os.path.join(os.path.dirname(__file__), "cl100k_base.tiktoken")
+                        if os.path.exists(local_path):
+                            with open(local_path, "rb") as f:
+                                return f.read()
+                        else:
+                            raise FileNotFoundError(
+                                f"Local cl100k_base.tiktoken file not found at {local_path}. "
+                                "请将文件放在app目录下。"
+                            )
+                    else:
+                        raise ConnectionError("离线环境，禁止网络请求")
+
+                # 替换tiktoken库的网络函数
+                import tiktoken.load
+                tiktoken.load.read_file = offline_read_file
+                tiktoken.load.read_file_cached = lambda bp, h: offline_read_file(bp)
+
+                # 现在可以安全地使用tiktoken
                 self.tokenizer = tiktoken.get_encoding("cl100k_base")
+
+            except Exception as e:
+                logger.error(f"Error initializing tokenizer: {e}")
+                # 创建一个基本的字符级tokenizer作为后备方案
+                class OfflineTokenizer:
+                    def encode(self, text: str) -> List[int]:
+                        return [ord(c) for c in text]
+
+                    def decode(self, tokens: List[int]) -> str:
+                        return ''.join(chr(token) for token in tokens)
+
+                logger.warning("Using simple character-based tokenizer as fallback")
+                self.tokenizer = OfflineTokenizer()
 
             if self.api_type == "azure":
                 self.client = AsyncAzureOpenAI(
